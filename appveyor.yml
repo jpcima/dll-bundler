@@ -1,0 +1,14 @@
+version: build-{build}
+image: Visual Studio 2019
+configuration: Release
+platform:
+- Win32
+
+install:
+- cmd: C:\msys64\usr\bin\bash -lc "pacman -Syuu --noconfirm --needed"
+- cmd: C:\msys64\usr\bin\bash -lc "pacman -S --needed mingw-w64-i686-toolchain mingw-w64-i686-llvm"
+
+build:
+- cmd: $env:CHERE_INVOKING = 'yes'
+- cmd: $env:MSYSTEM = 'MINGW32'
+- cmd: C:\msys64\usr\bin\bash -lc ".appveyor/build.sh"
