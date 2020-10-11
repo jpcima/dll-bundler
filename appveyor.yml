@@ -1,0 +1,40 @@
+version: build-{build}
+image: Visual Studio 2019
+configuration: Release
+platform:
+- Win32
+cache:
+- C:\msys64\var\cache\pacman\pkg -> .appveyor.yml
+branches:
+  except:
+    - latest
+
+install:
+- cmd: C:\msys64\usr\bin\bash -lc "pacman -Syuu --noconfirm --needed"
+- cmd: C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm --needed mingw-w64-i686-toolchain mingw-w64-i686-llvm"
+
+build_script:
+- cmd: set CHERE_INVOKING=yes
+- cmd: set MSYSTEM=MINGW32
+- cmd: C:\msys64\usr\bin\bash -lc ".appveyor/build.sh"
+
+after_build:
+- cmd: md release
+- cmd: echo F | xcopy /y dll-bundler.exe release\dll-bundler-win32.exe
+
+artifacts:
+  - path: release\dll-bundler-win32.exe
+    name: 'dll-bundler for 32-bit Windows'
+
+deploy:
+  - release: latest
+    description: The latest development release. Revision $(APPVEYOR_REPO_COMMIT)
+    provider: GitHub
+    auth_token:
+      secure: JinPJ3SPikk4vwuD39+xppQWAmei2jhc1Ru7jdWWizcOJahV71HG60BHs7J5gwAD
+    artifact: 'dll-bundler for 32-bit Windows'
+    draft: false
+    prerelease: true
+    force_update: true
+    on:
+      branch: master
