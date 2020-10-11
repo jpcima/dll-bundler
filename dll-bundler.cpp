@@ -10,8 +10,9 @@
 #include <queue>
 #include <string>
 
-static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath);
-static std::string findImport(llvm::StringRef dllImport, const std::vector<std::string> &searchPaths);
+static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath, llvm::Triple::ArchType *fileArch = nullptr);
+static std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch, const std::vector<std::string> &searchPaths);
+static bool checkFileArchitecture(llvm::StringRef filePath, llvm::Triple::ArchType dllArch);
 
 int main(int argc, char *argv[])
 {
@@ -52,8 +53,9 @@ int main(int argc, char *argv[])
 
     std::string rootBinaryFile = argv[optind];
     std::string rootBinaryDir = llvm::sys::path::parent_path(rootBinaryFile);
+    llvm::Triple::ArchType dllArch = llvm::Triple::ArchType::UnknownArch;
 
-    auto dllImportsOrError = getDllImports(rootBinaryFile);
+    auto dllImportsOrError = getDllImports(rootBinaryFile, &dllArch);
     if (std::error_code ec = dllImportsOrError.getError()) {
         llvm::errs() << ec.message() << "\n";
         return 1;
@@ -72,7 +74,7 @@ int main(int argc, char *argv[])
         if (!processed.insert(import).second)
             continue;
 
-        std::string fullPath = findImport(import, dllSearchPaths);
+        std::string fullPath = findImport(import, dllArch, dllSearchPaths);
         if (fullPath.empty())
             continue;
 
@@ -94,7 +96,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath)
+static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath, llvm::Triple::ArchType *fileArch)
 {
     std::error_code ec;
     std::vector<std::string> imports;
@@ -106,6 +108,9 @@ static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef fil
     llvm::object::COFFObjectFile obj(*sourceOrError.get(), ec);
     if (ec)
         return ec;
+
+    if (fileArch)
+        *fileArch = obj.getArch();
 
     for (auto &dir : obj.import_directories()) {
         llvm::StringRef name;
@@ -128,7 +133,7 @@ static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef fil
     return imports;
 }
 
-std::string findImport(llvm::StringRef dllImport, const std::vector<std::string> &searchPaths)
+std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch, const std::vector<std::string> &searchPaths)
 {
     for (llvm::StringRef dir : searchPaths) {
         std::error_code ec;
@@ -139,12 +144,31 @@ std::string findImport(llvm::StringRef dllImport, const std::vector<std::string>
             const llvm::sys::fs::directory_entry &ent = *it;
             llvm::StringRef filePath = ent.path();
             llvm::StringRef fileName = llvm::sys::path::filename(filePath);
-            if (fileName.equals_lower(dllImport))
-                return filePath;
+            if (fileName.equals_lower(dllImport)) {
+                if (!checkFileArchitecture(filePath, dllArch))
+                    llvm::errs() << "Skipped: " << filePath << "\n";
+                else
+                    return filePath;
+            }
             it.increment(ec);
             if (ec)
                 break;
         }
     }
     return std::string();
+}
+
+bool checkFileArchitecture(llvm::StringRef filePath, llvm::Triple::ArchType dllArch)
+{
+    std::error_code ec;
+
+    auto sourceOrError = llvm::MemoryBuffer::getFile(filePath);
+    if ((ec = sourceOrError.getError()))
+        return false;
+
+    llvm::object::COFFObjectFile obj(*sourceOrError.get(), ec);
+    if (ec)
+        return false;
+
+    return obj.getArch() == dllArch;
 }
