@@ -10,9 +10,13 @@
 #include <queue>
 #include <string>
 
+static llvm::ErrorOr<std::unique_ptr<llvm::object::COFFObjectFile>> openCOFFObject(llvm::MemoryBufferRef mb);
 static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath, llvm::Triple::ArchType *fileArch = nullptr);
 static std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch, const std::vector<std::string> &searchPaths);
 static bool checkFileArchitecture(llvm::StringRef filePath, llvm::Triple::ArchType dllArch);
+#if LLVM_VERSION_MAJOR < 11
+static llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const std::error_code &ec);
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -96,36 +100,50 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath, llvm::Triple::ArchType *fileArch)
+llvm::ErrorOr<std::unique_ptr<llvm::object::COFFObjectFile>> openCOFFObject(llvm::MemoryBufferRef mb)
 {
+#if LLVM_VERSION_MAJOR >= 11
+    return llvm::expectedToErrorOr(llvm::object::COFFObjectFile::create(mb));
+#else
     std::error_code ec;
+    std::unique_ptr<llvm::object::COFFObjectFile> obj(new llvm::object::COFFObjectFile(mb, ec));
+    if (ec)
+        return ec;
+    return obj;
+#endif
+}
+
+llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef filePath, llvm::Triple::ArchType *fileArch)
+{
     std::vector<std::string> imports;
 
     auto sourceOrError = llvm::MemoryBuffer::getFile(filePath);
-    if ((ec = sourceOrError.getError()))
+    if (std::error_code ec = sourceOrError.getError())
         return ec;
 
-    llvm::object::COFFObjectFile obj(*sourceOrError.get(), ec);
-    if (ec)
+    auto objOrError = openCOFFObject(**sourceOrError);
+    if (std::error_code ec = objOrError.getError())
         return ec;
+
+    llvm::object::COFFObjectFile &obj = **objOrError;
 
     if (fileArch)
         *fileArch = obj.getArch();
 
     for (auto &dir : obj.import_directories()) {
         llvm::StringRef name;
-        ec = dir.getName(name);
+        auto ec = dir.getName(name);
         if (ec)
-            llvm::errs() << ec.message() << "\n";
+            llvm::errs() << ec << "\n";
         else
             imports.emplace_back(name);
     }
 
     for (auto &dir : obj.delay_import_directories()) {
         llvm::StringRef name;
-        ec = dir.getName(name);
+        auto ec = dir.getName(name);
         if (ec)
-            llvm::errs() << ec.message() << "\n";
+            llvm::errs() << ec << "\n";
         else
             imports.emplace_back(name);
     }
@@ -160,15 +178,21 @@ std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch
 
 bool checkFileArchitecture(llvm::StringRef filePath, llvm::Triple::ArchType dllArch)
 {
-    std::error_code ec;
-
     auto sourceOrError = llvm::MemoryBuffer::getFile(filePath);
-    if ((ec = sourceOrError.getError()))
+    if (sourceOrError.getError())
         return false;
 
-    llvm::object::COFFObjectFile obj(*sourceOrError.get(), ec);
-    if (ec)
+    auto objOrError = openCOFFObject(**sourceOrError);
+    if (objOrError.getError())
         return false;
 
+    llvm::object::COFFObjectFile &obj = **objOrError;
     return obj.getArch() == dllArch;
 }
+
+#if LLVM_VERSION_MAJOR < 11
+llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const std::error_code &ec)
+{
+    return os << ec.message();
+}
+#endif
