@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     }
 
     std::string rootBinaryFile = argv[optind];
-    std::string rootBinaryDir = llvm::sys::path::parent_path(rootBinaryFile);
+    llvm::StringRef rootBinaryDir = llvm::sys::path::parent_path(rootBinaryFile);
     llvm::Triple::ArchType dllArch = llvm::Triple::ArchType::UnknownArch;
 
     auto dllImportsOrError = getDllImports(rootBinaryFile, &dllArch);
@@ -118,7 +118,7 @@ static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef fil
         if (ec)
             llvm::errs() << ec.message() << "\n";
         else
-            imports.push_back(name);
+            imports.emplace_back(name);
     }
 
     for (auto &dir : obj.delay_import_directories()) {
@@ -127,7 +127,7 @@ static llvm::ErrorOr<std::vector<std::string>> getDllImports(llvm::StringRef fil
         if (ec)
             llvm::errs() << ec.message() << "\n";
         else
-            imports.push_back(name);
+            imports.emplace_back(name);
     }
 
     return imports;
@@ -148,7 +148,7 @@ std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch
                 if (!checkFileArchitecture(filePath, dllArch))
                     llvm::errs() << "Skipped: " << filePath << "\n";
                 else
-                    return filePath;
+                    return std::string(filePath);
             }
             it.increment(ec);
             if (ec)
