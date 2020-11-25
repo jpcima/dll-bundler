@@ -1,6 +1,6 @@
 PREFIX ?= /usr/local
 CXX ?= g++
-CXXFLAGS ?= -O2 -g
+CXXFLAGS ?= -O2 -g -Wall
 LDFLAGS ?= -Wl,--as-needed
 
 LLVM_CXXFLAGS = $(shell llvm-config --cxxflags)
