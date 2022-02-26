@@ -162,7 +162,12 @@ std::string findImport(llvm::StringRef dllImport, llvm::Triple::ArchType dllArch
             const llvm::sys::fs::directory_entry &ent = *it;
             llvm::StringRef filePath = ent.path();
             llvm::StringRef fileName = llvm::sys::path::filename(filePath);
-            if (fileName.equals_lower(dllImport)) {
+#if LLVM_VERSION_MAJOR >= 13
+            bool fileNameEqual = fileName.equals_insensitive(dllImport);
+#else
+            bool fileNameEqual = fileName.equals_lower(dllImport);
+#endif
+            if (fileNameEqual) {
                 if (!checkFileArchitecture(filePath, dllArch))
                     llvm::errs() << "Skipped: " << filePath << "\n";
                 else
